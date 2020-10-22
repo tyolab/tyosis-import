@@ -43,7 +43,9 @@ params.showUsage = function() {
     console.error('');
     console.error('avaialbe options:');
     console.error('                 ');
+    
     console.error('                 --data-format YYYYMMDD');
+    console.error('                 ');
     console.error('                 --symbol-index 0');
     console.error('                 --date-index   1');
     console.error('                 --open-index   2');
@@ -51,6 +53,9 @@ params.showUsage = function() {
     console.error('                 --low-index    4');
     console.error('                 --close-index  5');
     console.error('                 --volume-index 6');
+    console.error('                 ');
+    console.error('                 --database     0');
+
 }
 
 if (optCount < 1) {
