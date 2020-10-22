@@ -19,7 +19,8 @@ var params = new Params({
     database: 0,
     host: "localhost",
     port: 6379,
-    "date-format": null, // "dd MMM yyyy"
+    "convert-date": true,
+    "date-format": 'YYYYMMDD', // @todo "dd MMM yyyy"
     "dry-run": true,
     "key-prefix": "",
     "symbol-index": 0,
@@ -37,6 +38,21 @@ var currentMonth = currentDate.getMonth();
 var opts = params.getOpts();
 var optCount = params.getOptCount();
 
+params.showUsage = function() {
+    console.error("node " + __filename + " [options] inputs");
+    console.error('');
+    console.error('avaialbe options:');
+    console.error('                 ');
+    console.error('                 --data-format YYYYMMDD');
+    console.error('                 --symbol-index 0');
+    console.error('                 --date-index   1');
+    console.error('                 --open-index   2');
+    console.error('                 --high-index   3');
+    console.error('                 --low-index    4');
+    console.error('                 --close-index  5');
+    console.error('                 --volume-index 6');
+}
+
 if (optCount < 1) {
     params.showUsage();
     process.exit(-1);
@@ -52,6 +68,7 @@ var symbolIndex = opts["symbol-index"] || 0,
 
 var keyPrefix = opts["key-prefix"] || "";
 var dateFormat = opts["date-format"];
+var convertDate = opts["convert-date"];
 
 var inputs = opts['---'];
 if (!Array.isArray(inputs))
@@ -98,14 +115,20 @@ function importFile(input) {
         var dateStr = tokens[dateIndex];
 
         // the to date format
-        if (dateFormat && dateFormat.length) {
-            // we store date in a format when only a date format is provided
+        if (convertDate) {
+            // parse date in a format when only a date format is provided
             // it can be later parse in the backtest tool or others
-            // and i.e. we can store date in format 'YYYYMMDD'
+            // and we store date in format 'YYYYMMDD' as key for the later easy retrieval of data
             var d = new Date(dateStr); 
+            if (d == 'Invalid Date') {
+                console.error('Unrecognized date format: ' + dataStr);
+                console.error('Please consider convert the date into a simple ISO standard format first, such as YYYY-MM-DD');
+                process.exit(1);
+            }
             dateStr = moment(d).format(dateFormat);
         }
-        var dataStr = `{"O": ${tokens[openIndex]}, "H": ${tokens[highIndex]}, "L": ${tokens[lowIndex]}, "C": ${tokens[closeIndex]}, "V": ${tokens[volumeIndex]}}`;
+
+        var dataStr = `{"O": ${parseFloat(tokens[openIndex])}, "H": ${parseFloat(tokens[highIndex])}, "L": ${parseFloat(tokens[lowIndex])}, "C": ${parseFloat(tokens[closeIndex])}, "V": ${parseInt(tokens[volumeIndex])}}`;
 
         var keyStr = opts["key-prefix"] + tokens[symbolIndex]
         client.HMSET(keyStr, 
