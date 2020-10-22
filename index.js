@@ -55,7 +55,8 @@ params.showUsage = function() {
     console.error('                 --volume-index 6');
     console.error('                 ');
     console.error('                 --database     0');
-
+    console.error('                 ');
+    console.error('                 --key-prefix   a-key-prefix');
 }
 
 if (optCount < 1) {
