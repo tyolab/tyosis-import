@@ -2,6 +2,10 @@
 
 This tools imports EOF price data from your broker into a redis database, so you can build a price database that you can backtest your strategy.
 
+## data structure
+KEY                 FIELD               VALUE
+[PREFIX]SYMBOL      YYYYMMDD          {"O": XX.XXX, "C": XX.XXX, "H": XX.XXX, "L": XX.XXX}
+
 ## Usage
 ```nodejs
 tyosis-import [options] inputs
@@ -23,9 +27,17 @@ avaialbe options:
                  --key-prefix   a-key-prefix
 ```
 
-## A Example
+## Examples
+
+The below command imports the EOD price data provided CommSec into database number 11.
+
 ```bash
-tyosis-import --key-prefix "asx:price:" --database 11 data/commsec/2020/MarketP_21102020.txt
+tyosis-import --key-prefix "asx:price:" --database 11 ./data/commsec/2020/MarketP_21102020.txt
+```
+
+If the data format in the file is already converted into YYYYMMDD, use the following command:
+```bash
+tyosis-import --key-prefix "asx:price:" --convert-date no ./data/2020/21102020.txt
 ```
 
 ## Notes

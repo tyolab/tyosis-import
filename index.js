@@ -101,6 +101,8 @@ function toDate(dateStr) {
 }
 
 function importFile(input) {
+    var tested = false;
+
     const readInterface = readline.createInterface({
         input: fs.createReadStream(input),
         output: process.stdout,
@@ -141,6 +143,15 @@ function importFile(input) {
             dateStr, dataStr
             );
 
+        if (!tested) {
+            client.hget(keyStr, dateStr, function(err, value) {
+                if (err || !value) {
+                    console.error("Can't find the value for key: " + keyStr + ", field: " + dateStr);
+                    process.exit(-1);
+                }
+            });
+            tested = true;
+        }
     });
 
     readInterface.on('close', function(line) {
