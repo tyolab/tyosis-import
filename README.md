@@ -29,7 +29,7 @@ avaialbe options:
 
 ## Examples
 
-The below command imports the EOD price data provided CommSec into database number 11.
+The below command imports the EOF price data provided CommSec into database number 11.
 
 ```bash
 tyosis-import --key-prefix "asx:price:" --database 11 ./data/commsec/2020/MarketP_21102020.txt

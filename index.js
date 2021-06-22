@@ -139,9 +139,12 @@ function importFile(input) {
         var dataStr = `{"O": ${parseFloat(tokens[openIndex])}, "H": ${parseFloat(tokens[highIndex])}, "L": ${parseFloat(tokens[lowIndex])}, "C": ${parseFloat(tokens[closeIndex])}, "V": ${parseInt(tokens[volumeIndex])}}`;
 
         var keyStr = opts["key-prefix"] + tokens[symbolIndex]
-        client.HMSET(keyStr, 
-            dateStr, dataStr
-            );
+        client.hmset(keyStr, 
+            dateStr, 
+            dataStr,
+            () => {
+                console.log(keyStr + " inserted");
+            });
 
         if (!tested) {
             client.hget(keyStr, dateStr, function(err, value) {
