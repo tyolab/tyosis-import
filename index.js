@@ -100,7 +100,36 @@ function toDate(dateStr) {
     return moment(dateStr, dateFormat).toDate();
 }
 
-function importFile(input) {
+async function promisify () {
+    var args = Array.from(arguments);
+    var func = args.shift();
+
+    var retValue = null;
+    try {
+        retValue = await new Promise((resolve, reject) => {
+
+            var cb = function (err, value) {
+                if (err) return reject(err);
+            
+                resolve((value));
+            }
+
+            args.push(cb);
+
+            func.apply(client, args);
+        });
+    }
+    catch (err) {
+        console.error(err);
+    }
+    return retValue;
+}
+
+async function HMSET (key, field, value) {
+    return await promisify(client.HMSET, key, field, value);
+}
+
+async function importFile(input) {
     var tested = false;
 
     const readInterface = readline.createInterface({
@@ -109,7 +138,8 @@ function importFile(input) {
         console: false
     });
 
-    readInterface.on('line', function(line) {
+    // readInterface.on('line', async function(line) {
+    for await (const line of readInterface) {
         console.log(line);
         var tokens = line.split(",");
         // #1 Symbol
@@ -139,7 +169,7 @@ function importFile(input) {
         var dataStr = `{"O": ${parseFloat(tokens[openIndex])}, "H": ${parseFloat(tokens[highIndex])}, "L": ${parseFloat(tokens[lowIndex])}, "C": ${parseFloat(tokens[closeIndex])}, "V": ${parseInt(tokens[volumeIndex])}}`;
 
         var keyStr = opts["key-prefix"] + tokens[symbolIndex]
-        client.hmset(keyStr, 
+        await HMSET(keyStr, 
             dateStr, 
             dataStr,
             () => {
@@ -155,7 +185,8 @@ function importFile(input) {
             });
             tested = true;
         }
-    });
+    }
+    //);
 
     readInterface.on('close', function(line) {
         process.exit(0);
@@ -164,7 +195,7 @@ function importFile(input) {
 
 client.select(opts.database, function() {
     
-    client.hgetall("tyosis-config", function(err, config) {
+    client.hgetall("tyosis-config", async function(err, config) {
         config = config || {};
 
         // remember last time setting unless getting overriden from the command line
@@ -194,7 +225,7 @@ client.select(opts.database, function() {
         if (config["volume-index"])
             volumeIndex = config["volume-index"];
 
-        client.hmset("tyosis-config",
+        await HMSET("tyosis-config",
         "key-prefix", keyPrefix,
         "symbol-index", symbolIndex,
         "date-index", dateIndex,
@@ -205,8 +236,8 @@ client.select(opts.database, function() {
         "volume-index", volumeIndex,
         );
 
-        inputs.map((input) => {
-            importFile(input);
+        inputs.map(async (input) => {
+            await importFile(input);
         });
 
     });
