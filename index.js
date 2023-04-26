@@ -138,8 +138,13 @@ async function importFile(input) {
         console: false
     });
 
-    // readInterface.on('line', async function(line) {
-    for await (const line of readInterface) {
+    readInterface.on('line', function(line) {
+    // for await (const line of readInterface) {
+        if (!line || line.length == 0) {
+            console.log('Empty line');
+            return;
+        }
+
         console.log(line);
         var tokens = line.split(",");
         // #1 Symbol
@@ -159,7 +164,8 @@ async function importFile(input) {
             // and we store date in format 'YYYYMMDD' as key for the later easy retrieval of data
             var d = new Date(dateStr); 
             if (d == 'Invalid Date') {
-                console.error('Unrecognized date format: ' + dataStr);
+                console.error('Unrecognized date format: ' + dateStr);
+                console.error('In line: ' + line);
                 console.error('Please consider convert the date into a simple ISO standard format first, such as YYYY-MM-DD');
                 process.exit(1);
             }
@@ -169,7 +175,7 @@ async function importFile(input) {
         var dataStr = `{"O": ${parseFloat(tokens[openIndex])}, "H": ${parseFloat(tokens[highIndex])}, "L": ${parseFloat(tokens[lowIndex])}, "C": ${parseFloat(tokens[closeIndex])}, "V": ${parseInt(tokens[volumeIndex])}}`;
 
         var keyStr = opts["key-prefix"] + tokens[symbolIndex]
-        await HMSET(keyStr, 
+        HMSET(keyStr, 
             dateStr, 
             dataStr,
             () => {
@@ -186,7 +192,7 @@ async function importFile(input) {
             tested = true;
         }
     }
-    //);
+    );
 
     readInterface.on('close', function(line) {
         process.exit(0);
