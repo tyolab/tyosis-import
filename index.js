@@ -7,7 +7,6 @@
  */
 
 const redis = require("redis");
-const client = redis.createClient();
 
 const readline = require('readline');
 const fs = require('fs');
@@ -41,7 +40,7 @@ var optCount = params.getOptCount();
 params.showUsage = function() {
     console.error("node " + __filename + " [options] inputs");
     console.error('');
-    console.error('avaialbe options:');
+    console.error('available options:');
     console.error('                 ');
     
     console.error('                 --data-format YYYYMMDD');
@@ -54,6 +53,8 @@ params.showUsage = function() {
     console.error('                 --close-index  5');
     console.error('                 --volume-index 6');
     console.error('                 ');
+    console.error('                 --host       localhost');
+    console.error('                 --port         6379');
     console.error('                 --database     0');
     console.error('                 ');
     console.error('                 --key-prefix   a-key-prefix');
@@ -80,7 +81,17 @@ var inputs = opts['---'];
 if (!Array.isArray(inputs))
     inputs = [inputs];
 
-console.log("Importing data from " + inputs);
+console.log("Importing data from " + inputs + " to redis" + " server " + opts.host + ":" + opts.port + " database " + opts.database + "");
+
+const client = redis.createClient({
+    // socket: {
+    //     host: opts.host,
+    //     port: opts.port - 0
+    // },
+    // legacyMode: true,
+    host: opts.host,
+    port: opts.port - 0
+});
 
 function formatDate(d) {
     var 
