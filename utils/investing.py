@@ -1,6 +1,6 @@
-import investpy
-
 import argparse
+import os
+from datetime import datetime
 import investpy
 import pandas as pd
 
@@ -41,9 +41,20 @@ def main():
     data = get_investing_data(args.symbol, args.from_date, args.to_date, args.country)
 
     if data is not None:
-        print(data)
-        # You can further process the data here, e.g., save it to a CSV file:
-        # data.to_csv(f"{args.symbol}_historical_data.csv")
+        # Format date and reorder columns
+        data['Date'] = pd.to_datetime(data.index).strftime('%d/%m/%Y')
+        data = data[['Date', 'Open', 'High', 'Low', 'Close']]
+        data.insert(0, 'Symbol', args.symbol)  # Add symbol column at the beginning
+
+        # Create directory if it doesn't exist
+        year = args.to_date.split('/')[-1]
+        output_dir = f"/data/tyolab/node/tyosis-import/data/{args.country}/{args.symbol}/{year}"
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Save to CSV
+        output_file = os.path.join(output_dir, f"{args.symbol}_{year}.txt")
+        data.to_csv(output_file, index=False)
+        print(f"Data saved to: {output_file}")
 
 if __name__ == "__main__":
     main()
