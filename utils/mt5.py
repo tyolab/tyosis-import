@@ -4,6 +4,14 @@ import sys
 from datetime import datetime, date
 import os
 
+def get_market_from_symbol(symbol_path):
+    # path=Forex\EURJPY
+    # we extract the market from the path
+    if symbol_path:
+        market = symbol_path.split('\\')[0]  # Adjust this based on your actual path structure
+        return market
+    return None
+
 def download_mt5_eod_data(symbol, year):
     """
     Downloads historical EOD data from MetaTrader 5 for a given symbol and year.
@@ -64,7 +72,7 @@ def download_mt5_eod_data(symbol, year):
             print(f"Warning: Could not read last date from {filepath}. Downloading data for the entire year.")
 
     # Download data
-    rates = mt5.copy_rates_range(symbol, from_date, to_date)
+    rates = mt5.copy_rates_range(symbol, mt5.TIMEFRAME_D1, from_date, to_date)
 
     if rates is None or len(rates) == 0:
         print(f"No data found for {symbol} in {year} from {from_date.strftime('%d/%m/%Y')} to {to_date.strftime('%d/%m/%Y')}")
@@ -77,7 +85,7 @@ def download_mt5_eod_data(symbol, year):
     # Format date and select columns
     df['time'] = pd.to_datetime(df['time'], unit='s')
     df['date'] = df['time'].dt.strftime("%d/%m/%Y")
-    df = df[['date', 'open', 'high', 'low', 'close', 'tick_volume']]
+    df = df[['date', 'open', 'high', 'low', 'close', 'volume']]
     df.insert(0, 'symbol', symbol)
 
     # Append to file or create new file
@@ -105,13 +113,3 @@ if __name__ == "__main__":
         sys.exit(1)
 
     download_mt5_eod_data(symbol, year)
-
-
-# Placeholder function - replace with your actual market determination logic
-def get_market_from_symbol(symbol_path):
-    # path=Forex\EURJPY
-    # we extract the market from the path
-    if symbol_path:
-        market = symbol_path.split('\\')[0]  # Adjust this based on your actual path structure
-        return market
-    return None
