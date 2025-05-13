@@ -21,11 +21,26 @@ def download_mt5_eod_data(symbol, year):
         print("initialize() failed")
         mt5.shutdown()
         return
+    
+    selected = mt5.symbol_select(symbol, True)
+    if not selected:
+        print(f"Symbol {symbol} not found or not selected.")
+        mt5.shutdown()
+        return
+    
+    symbol_info = mt5.symbol_info(symbol)
+
+    # Get the path of symbol_info
+    if symbol_info is None:
+        print(f"Symbol {symbol} not found.")
+        mt5.shutdown()
+        return
+    symbol_path = symbol_info.path if hasattr(symbol_info, 'path') else None
 
     # Get market information (if available) -  This part needs to be adapted based on how you determine the market from the symbol.
     # For example, you might have a dictionary or a function that maps symbols to markets.
     # Here's a placeholder:
-    market = get_market_from_symbol(symbol)  # Replace with your actual logic
+    market = get_market_from_symbol(symbol_path)  # Replace with your actual logic
 
     # Prepare file path
     directory = f"data/{market}/{symbol}" if market else f"data/{symbol}"
@@ -93,8 +108,10 @@ if __name__ == "__main__":
 
 
 # Placeholder function - replace with your actual market determination logic
-def get_market_from_symbol(symbol):
-    # Example:  If symbols starting with "EUR" are in the "forex" market
-    if symbol.startswith("EUR"):
-        return "forex"
-    return None  # Or your default market if none is found
+def get_market_from_symbol(symbol_path):
+    # path=Forex\EURJPY
+    # we extract the market from the path
+    if symbol_path:
+        market = symbol_path.split('\\')[0]  # Adjust this based on your actual path structure
+        return market
+    return None
