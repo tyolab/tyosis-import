@@ -1,2 +1,5 @@
 MetaTrader5
 pandas
+moment
+redis
+regex
