@@ -53,7 +53,7 @@ params.showUsage = function() {
     console.error('                 --close-index  5');
     console.error('                 --volume-index 6');
     console.error('                 ');
-    console.error('                 --host       localhost');
+    console.error('                 --host         localhost');
     console.error('                 --port         6379');
     console.error('                 --database     0');
     console.error('                 ');
