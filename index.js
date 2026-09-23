@@ -1,7 +1,7 @@
 /*
  *   Copyright (c) 2020 TYONLINE TECHNOLOGY PTY. LTD. (TYO Lab)
  *   All rights reserved.
- * 
+ *
  *   @author Eric Tang (eric@tyo.com.au)
  *   @twitter @_e_tang
  */
@@ -13,6 +13,15 @@ const fs = require('fs');
 const moment = require('moment');
 
 var Params = require('node-programmer/params');
+
+// Exit codes -- a caller (scripts/import_stocks.sh, cron) must be able to tell
+// "nothing landed" from success:
+//   0  every data row of every input was written to Redis
+//   1  at least one row failed to write, or an input could not be read
+//   2  could not talk to Redis at all (connection refused / lost), or bad usage
+const EXIT_OK = 0;
+const EXIT_WRITE_FAILED = 1;
+const EXIT_CONNECTION = 2;
 
 var params = new Params({
     database: 0,
@@ -42,7 +51,7 @@ params.showUsage = function() {
     console.error('');
     console.error('available options:');
     console.error('                 ');
-    
+    console.error('                 --convert-date true');
     console.error('                 --data-format YYYYMMDD');
     console.error('                 ');
     console.error('                 --symbol-index 0');
@@ -62,7 +71,7 @@ params.showUsage = function() {
 
 if (optCount < 1) {
     params.showUsage();
-    process.exit(-1);
+    process.exit(EXIT_CONNECTION);
 }
 
 var symbolIndex = opts["symbol-index"] || 0,
@@ -80,28 +89,47 @@ var convertDate = opts["convert-date"];
 var inputs = opts['---'];
 if (!Array.isArray(inputs))
     inputs = [inputs];
+inputs = inputs.filter((input) => typeof input === 'string' && input.length > 0);
+
+if (inputs.length === 0) {
+    console.error("No input file given.");
+    params.showUsage();
+    process.exit(EXIT_CONNECTION);
+}
 
 console.log("Importing data from " + inputs + " to redis" + " server " + opts.host + ":" + opts.port + " database " + opts.database + "");
 
+// The redis v3 client retries forever by default and, with no 'error'
+// listener, a connection failure was an uncaught exception at best -- or, for
+// a Redis that stayed down, the offline queue just swallowed every write and
+// the process still exited 0 once the input file had been read. Bound the
+// retries and turn any connection error into a hard, non-zero exit.
 const client = redis.createClient({
-    // socket: {
-    //     host: opts.host,
-    //     port: opts.port - 0
-    // },
-    // legacyMode: true,
     host: opts.host,
-    port: opts.port - 0
+    port: opts.port - 0,
+    enable_offline_queue: false,
+    retry_strategy: function (options) {
+        if (options.attempt > 3) {
+            return new Error("Could not connect to redis at " + opts.host + ":" + opts.port + " after " + (options.attempt - 1) + " attempts (" + (options.error && options.error.code) + ")");
+        }
+        return Math.min(options.attempt * 200, 1000);
+    },
+});
+
+client.on('error', function (err) {
+    console.error("Redis error: " + (err && err.message || err));
+    process.exit(EXIT_CONNECTION);
 });
 
 function formatDate(d) {
-    var 
+    var
         month = '' + (d.getMonth() + 1),
         day = '' + d.getDate(),
         year = '' + d.getFullYear();
 
-    if (month.length < 2) 
+    if (month.length < 2)
         month = '0' + month;
-    if (day.length < 2) 
+    if (day.length < 2)
         day = '0' + day;
 
     return [year, month, day].join('');
@@ -111,138 +139,189 @@ function toDate(dateStr) {
     return moment(dateStr, dateFormat).toDate();
 }
 
-async function promisify () {
+// Rejects on error (the old helper logged and swallowed it, so a failed write
+// looked identical to a successful one).
+function promisify () {
     var args = Array.from(arguments);
     var func = args.shift();
 
-    var retValue = null;
-    try {
-        retValue = await new Promise((resolve, reject) => {
-
-            var cb = function (err, value) {
-                if (err) return reject(err);
-            
-                resolve((value));
-            }
-
-            args.push(cb);
-
-            func.apply(client, args);
+    return new Promise((resolve, reject) => {
+        args.push(function (err, value) {
+            if (err) return reject(err);
+            resolve(value);
         });
-    }
-    catch (err) {
-        console.error(err);
-    }
-    return retValue;
-}
-
-async function HMSET (key, field, value) {
-    return await promisify(client.HMSET, key, field, value);
-}
-
-async function importFile(input) {
-    var tested = false;
-
-    const readInterface = readline.createInterface({
-        input: fs.createReadStream(input),
-        output: process.stdout,
-        console: false
+        func.apply(client, args);
     });
+}
 
-    readInterface.on('line', function(line) {
-    // for await (const line of readInterface) {
-        if (!line || line.length == 0) {
-            console.log('Empty line');
-            return;
-        }
+function HMSET () {
+    return promisify.apply(null, [client.HMSET].concat(Array.from(arguments)));
+}
 
-        console.log(line);
-        var tokens = line.split(",");
-        // #1 Symbol
-        // #2 Date
-        // #3 Open
-        // #4 High
-        // #5 Low
-        // #6 Close
-        // #7 Volume
+function HGET (key, field) {
+    return promisify(client.HGET, key, field);
+}
 
-        var dateStr = tokens[dateIndex];
+function SELECT (db) {
+    return promisify(client.SELECT, db);
+}
 
-        // the to date format
-        if (convertDate) {
-            // parse date in a format when only a date format is provided
-            // it can be later parse in the backtest tool or others
-            // and we store date in format 'YYYYMMDD' as key for the later easy retrieval of data
-            var d = new Date(dateStr); 
-            if (d == 'Invalid Date') {
-                console.error('Unrecognized date format: ' + dateStr);
-                console.error('In line: ' + line);
-                console.error('Please consider convert the date into a simple ISO standard format first, such as YYYY-MM-DD');
-                process.exit(1);
+function HGETALL (key) {
+    return promisify(client.HGETALL, key);
+}
+
+// A day-file's first line is a header ("Code,Date,Open,...") and stray lines
+// (blank, comment, ragged) occasionally show up; these used to be written as
+// data -- every market carries a "<prefix>Code" hash with a "Date" field.
+function parseRow(line) {
+    var tokens = line.split(",");
+    if (tokens.length <= volumeIndex)
+        return { skip: "too few columns" };
+
+    var symbol = tokens[symbolIndex] && tokens[symbolIndex].trim();
+    var dateStr = tokens[dateIndex] && tokens[dateIndex].trim();
+    if (!symbol || !dateStr)
+        return { skip: "missing symbol/date" };
+
+    var open = parseFloat(tokens[openIndex]),
+        high = parseFloat(tokens[highIndex]),
+        low = parseFloat(tokens[lowIndex]),
+        close = parseFloat(tokens[closeIndex]),
+        volume = parseInt(tokens[volumeIndex]);
+    if (isNaN(open) || isNaN(high) || isNaN(low) || isNaN(close))
+        return { skip: "non-numeric OHLC (header?)" };
+    if (isNaN(volume))
+        volume = 0;
+
+    if (convertDate) {
+        // parse date in a format when only a date format is provided
+        // it can be later parse in the backtest tool or others
+        // and we store date in format 'YYYYMMDD' as key for the later easy retrieval of data
+        var d = new Date(dateStr);
+        if (d == 'Invalid Date')
+            return { error: 'Unrecognized date format: ' + dateStr + ' (consider converting the date into a simple ISO standard format first, such as YYYY-MM-DD)' };
+        dateStr = moment(d).format(dateFormat);
+    }
+    else if (!/^\d{8}$/.test(dateStr)) {
+        return { skip: "date is not YYYYMMDD" };
+    }
+
+    return {
+        key: keyPrefix + symbol,
+        field: dateStr,
+        value: `{"O": ${open}, "H": ${high}, "L": ${low}, "C": ${close}, "V": ${volume}}`,
+    };
+}
+
+// Resolves to { inserted, skipped, failed } once EVERY write for the file has
+// been acknowledged by Redis. The old version exited the process the moment
+// readline hit EOF, with the writes still in flight.
+function importFile(input) {
+    return new Promise((resolve) => {
+        var stats = { input, inserted: 0, skipped: 0, failed: 0 };
+        var pending = [];
+        var verified = false;
+
+        var done = false;
+        var finish = function () {
+            if (done) return;
+            done = true;
+            Promise.all(pending).then(function () { resolve(stats); });
+        };
+
+        const readInterface = readline.createInterface({
+            input: fs.createReadStream(input),
+            console: false
+        });
+
+        // readline re-emits the stream's error on the interface; unhandled, an
+        // unreadable input (ENOENT, EACCES) crashed the whole run
+        readInterface.on('error', function (err) {
+            console.error("Cannot read " + input + ": " + err.message);
+            stats.failed++;
+            finish();
+        });
+
+        readInterface.on('line', function(line) {
+            if (!line || line.trim().length == 0) {
+                stats.skipped++;
+                return;
             }
-            dateStr = moment(d).format(dateFormat);
-        }
 
-        var dataStr = `{"O": ${parseFloat(tokens[openIndex])}, "H": ${parseFloat(tokens[highIndex])}, "L": ${parseFloat(tokens[lowIndex])}, "C": ${parseFloat(tokens[closeIndex])}, "V": ${parseInt(tokens[volumeIndex])}}`;
+            console.log(line);
+            var row = parseRow(line);
+            if (row.skip) {
+                console.log("Skipped (" + row.skip + "): " + line);
+                stats.skipped++;
+                return;
+            }
+            if (row.error) {
+                console.error(row.error);
+                console.error('In line: ' + line);
+                stats.failed++;
+                return;
+            }
 
-        var keyStr = opts["key-prefix"] + tokens[symbolIndex]
-        HMSET(keyStr, 
-            dateStr, 
-            dataStr,
-            () => {
-                console.log(keyStr + " inserted");
-            });
+            var write = HMSET(row.key, row.field, row.value)
+                .then(function () {
+                    console.log(row.key + " inserted");
+                    stats.inserted++;
+                    // read back the first row of each file to catch a Redis that
+                    // acknowledges but does not actually persist (wrong database, ACL...)
+                    if (!verified) {
+                        verified = true;
+                        return HGET(row.key, row.field).then(function (value) {
+                            if (!value) {
+                                console.error("Can't find the value for key: " + row.key + ", field: " + row.field + " after writing it");
+                                stats.failed++;
+                            }
+                        });
+                    }
+                })
+                .catch(function (err) {
+                    console.error("Failed to write " + row.key + " " + row.field + ": " + (err && err.message || err));
+                    stats.failed++;
+                });
+            pending.push(write);
+        });
 
-        if (!tested) {
-            client.hget(keyStr, dateStr, function(err, value) {
-                if (err || !value) {
-                    console.error("Can't find the value for key: " + keyStr + ", field: " + dateStr);
-                    process.exit(-1);
-                }
-            });
-            tested = true;
-        }
-    }
-    );
-
-    readInterface.on('close', function(line) {
-        process.exit(0);
+        readInterface.on('close', finish);
     });
 }
 
-client.select(opts.database, function() {
-    
-    client.hgetall("tyosis-config", async function(err, config) {
-        config = config || {};
+async function main() {
+    await SELECT(opts.database);
 
-        // remember last time setting unless getting overriden from the command line
-        if (!opts["key-prefix"] || opts["key-prefix"].length)
-            keyPrefix = config["key-prefix"] || "";
-        else
-            keyPrefix = opts["key-prefix"];
-        
-        if (config["symbol-index"])
-            symbolIndex = config["symbol-index"];
+    var config = (await HGETALL("tyosis-config")) || {};
 
-        if (config["date-index"])
-            dateIndex = config["date-index"];
+    // remember last time setting unless getting overriden from the command line
+    if (!opts["key-prefix"] || !opts["key-prefix"].length)
+        keyPrefix = config["key-prefix"] || "";
+    else
+        keyPrefix = opts["key-prefix"];
 
-        if (config["open-index"])
-            openIndex = config["open-index"];
-            
-        if (config["high-index"])
-            highIndex = config["high-index"];
-            
-        if (config["low-index"])
-            lowIndex = config["low-index"];
+    if (config["symbol-index"])
+        symbolIndex = config["symbol-index"];
 
-        if (config["close-index"])
-            closeIndex = config["close-index"];            
+    if (config["date-index"])
+        dateIndex = config["date-index"];
 
-        if (config["volume-index"])
-            volumeIndex = config["volume-index"];
+    if (config["open-index"])
+        openIndex = config["open-index"];
 
-        await HMSET("tyosis-config",
+    if (config["high-index"])
+        highIndex = config["high-index"];
+
+    if (config["low-index"])
+        lowIndex = config["low-index"];
+
+    if (config["close-index"])
+        closeIndex = config["close-index"];
+
+    if (config["volume-index"])
+        volumeIndex = config["volume-index"];
+
+    await HMSET("tyosis-config",
         "key-prefix", keyPrefix,
         "symbol-index", symbolIndex,
         "date-index", dateIndex,
@@ -251,12 +330,29 @@ client.select(opts.database, function() {
         "low-index", lowIndex,
         "close-index", closeIndex,
         "volume-index", volumeIndex,
-        );
+    );
 
-        inputs.map(async (input) => {
-            await importFile(input);
+    var totals = { inserted: 0, skipped: 0, failed: 0 };
+    for (const input of inputs) {
+        var stats = await importFile(input);
+        console.log(input + ": " + stats.inserted + " inserted, " + stats.skipped + " skipped, " + stats.failed + " failed");
+        totals.inserted += stats.inserted;
+        totals.skipped += stats.skipped;
+        totals.failed += stats.failed;
+    }
+
+    console.log("Done: " + totals.inserted + " inserted, " + totals.skipped + " skipped, " + totals.failed + " failed" + (inputs.length > 1 ? " across " + inputs.length + " files" : ""));
+    return totals.failed > 0 ? EXIT_WRITE_FAILED : EXIT_OK;
+}
+
+// With the offline queue off, nothing may be sent before the connection is up.
+client.once('ready', function () {
+    main()
+        .then(function (code) {
+            client.quit(function () { process.exit(code); });
+        })
+        .catch(function (err) {
+            console.error(err && err.message || err);
+            process.exit(EXIT_CONNECTION);
         });
-
-    });
-
 });

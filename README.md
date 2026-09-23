@@ -41,6 +41,15 @@ tyosis-import --key-prefix "asx:price:" --convert-date no ./data/2020/21102020.t
 ```
 
 ## Notes
+
+- The first line of a day-file is expected to be a header (`Code,Date,Open,High,Low,Close,Volume`);
+  it -- and any other row whose OHLC fields are not numeric -- is skipped, not imported.
+- Every write is acknowledged by Redis before the process exits, and the first row of each
+  file is read back as a sanity check. Multiple input files are imported in order.
+- Exit codes: `0` every data row written · `1` some rows failed, or an input could not be
+  read (see the per-file summary) · `2` could not connect to Redis, or bad usage.
+  Redis connection attempts are bounded (no endless retry), so a down server fails fast.
+
 The date in the EOF data from CommSec is in a format of "dd MMM yyyy" which can be regonised by the tool automatically. If the date format in m
 
 ## Maintainer
